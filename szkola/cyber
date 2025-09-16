@@ -1,0 +1,123 @@
+SQL Injection — co to jest i jak się przed tym bronić w aplikacji PHP
+1. Wprowadzenie
+
+SQL Injection (wstrzykiwanie SQL) to technika ataku, w której napastnik wstawia złośliwe fragmenty zapytań SQL do pól wejściowych aplikacji (np. formularzy, parametrów GET/POST, ciasteczek), aby zmienić zachowanie zapytania wykonywanego po stronie bazy danych. Celem może być odczyt, modyfikacja lub usunięcie danych, eskalacja uprawnień czy przejęcie całkowitej kontroli nad serwerem.
+
+2. Dlaczego to jest groźne
+
+Ujawnienie wrażliwych danych (hasła, dane osobowe).
+
+Modyfikacja lub usunięcie danych.
+
+Uzyskanie dostępu administracyjnego do bazy.
+
+Wykonanie poleceń systemowych (w przypadku błędnej konfiguracji).
+
+Utrata reputacji i koszty naprawy.
+
+3. Przykład prostego kodu w PHP
+// Przykład podatnego kodu
+$username = $_GET['user'];
+$password = $_GET['pass'];
+$sql = "SELECT * FROM users WHERE username = '$username' AND password = '$password'";
+$result = $db->query($sql);
+
+Jeśli napastnik poda user = admin' -- (albo inne złośliwe wartości), zapytanie może zostać zmienione w sposób umożliwiający obejście logowania.
+
+4. Typy SQL Injection (krótko)
+
+In-band (error-based / UNION-based) — atakujący otrzymuje wynik bezpośrednio w odpowiedzi aplikacji.
+
+Blind SQLi (boolean / time-based) — gdy aplikacja nie zwraca treści, atakujący wyciąga informacje poprzez obserwowanie zachowania (true/false) lub opóźnień.
+
+Out-of-band — gdy atakujący otrzymuje dane przez inny kanał (np. DNS, HTTP callback).
+
+5. Zasady obrony — ogólny przegląd
+
+Używaj zapytań parametryzowanych (prepared statements) — najważniejsza i najskuteczniejsza metoda.
+
+Walidacja i filtrowanie wejścia — w pierwszej kolejności: whitelist (dozwolone wartości), ograniczenia długości i typów.
+
+Zasada najmniejszych uprawnień — konto bazy danych wykorzystywane przez aplikację powinno mieć tylko niezbędne uprawnienia.
+
+Obsługa błędów — nie zwracaj surowych błędów SQL użytkownikom (loguj wewnętrznie, pokazuj przyjazne komunikaty).
+
+Unikaj dynamicznego składania zapytań z surowego wejścia — jeżeli konieczne, stosuj bezpieczne mechanizmy.
+
+Włączanie/konfiguracja serwera: wyłącz multiple statements jeśli nie są potrzebne; ustaw odpowiednią konfigurację sterownika.
+
+Monitorowanie i testy — regularne testy penetracyjne, skanery (np. sqlmap) i WAF.
+
+6. Sposoby obrony w PHP — praktyczne przykłady
+6.1. PDO (zalecane)
+// Połączenie PDO (przykład)
+$dsn = 'mysql:host=localhost;dbname=mydb;charset=utf8mb4';
+$options = [
+PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+PDO::ATTR_EMULATE_PREPARES => false, // ważne: używaj natywnych przygotowanych zapytań
+];
+$pdo = new PDO($dsn, 'dbuser', 'dbpass', $options);
+
+
+// Przykład zapytania parametryzowanego
+$stmt = $pdo->prepare('SELECT * FROM users WHERE email = ? AND active = 1');
+$stmt->execute([$email]);
+$user = $stmt->fetch();
+Uwagi:
+
+Ustawienie ATTR_EMULATE_PREPARES => false zmusza PDO do korzystania z natywnych prepared statements sterownika, co jest bezpieczniejsze.
+
+Nigdy nie składaj ciągów zawierających surowe wartości użytkownika.
+
+6.2. MySQLi (prepared statements)
+$mysqli = new mysqli('localhost', 'dbuser', 'dbpass', 'mydb');
+$stmt = $mysqli->prepare('SELECT id, username FROM users WHERE username = ?');
+$stmt->bind_param('s', $username);
+$stmt->execute();
+$result = $stmt->get_result();
+$row = $result->fetch_assoc();
+6.3. Przykład bezpiecznego wyszukiwania z LIKE
+$search = '%'. $userInput .'%';
+$stmt = $pdo->prepare('SELECT * FROM products WHERE name LIKE ?');
+$stmt->execute([$search]);
+$rows = $stmt->fetchAll();
+
+6.4. Kiedy wykorzystać escaping (jako ostateczność)
+
+Jeśli z jakiegoś powodu nie możesz użyć przygotowanych zapytań, użyj odpowiednich funkcji escapujących (np. mysqli_real_escape_string) i upewnij się, że nie używasz ich zamiast parametryzacji tam, gdzie parametryzacja jest dostępna. Jednak escapowanie jest bardziej podatne na błędy i nie zaleca się go jako głównej techniki.
+
+6.5. Stored procedures i ORM
+
+Stored procedures mogą pomóc, ale same w sobie nie gwarantują bezpieczeństwa — muszą być skonstruowane z parametrami i bez dynamicznego składania zapytań.
+
+ORM (np. Eloquent, Doctrine) zwykle korzystają z zapytań parametryzowanych — nadal trzeba uważać przy wykonywaniu surowych zapytań (raw queries).
+
+7. Dodatkowe praktyki bezpieczeństwa
+
+Ogranicz uprawnienia konta DB (np. brak DROP, brak GRANT dla aplikacyjnego użytkownika).
+
+Wyłącz wyświetlanie szczegółowych błędów SQL na produkcji.
+
+Loguj podejrzane zdarzenia i monitoruj nietypowe zapytania.
+
+Użyj Web Application Firewall (WAF) jako dodatkowa warstwa ochrony.
+
+Aktualizuj oprogramowanie (PHP, sterowniki DB, serwer DB) i stosuj poprawki bezpieczeństwa.
+
+Unikaj łączenia się do bazy z kontem root lub superuser z aplikacji.
+
+8. Testowanie i audyt
+
+Regularnie wykonuj testy penetracyjne i skanowanie narzędziami takimi jak sqlmap.
+
+Wprowadź testy bezpieczeństwa jako część CI/CD (np. automatyczne skanowanie kodu i zależności).
+
+9. Szybka lista kontrolna (checklist)
+
+
+
+
+10. Podsumowanie
+
+SQL Injection to wciąż jedna z najpoważniejszych i najczęściej wykrywanych podatności. Najlepszą obroną jest konsekwentne stosowanie zapytań parametryzowanych, walidacja wejścia, ograniczenie uprawnień bazy oraz dobre praktyki w obsłudze błędów i logowaniu. Przy wdrożeniu tych zasad ryzyko ataku SQL Injection spada do minimum.
